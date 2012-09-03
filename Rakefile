@@ -1,5 +1,3 @@
-# encoding: utf-8
-
 require 'rubygems'
 require 'rake'
 
@@ -10,7 +8,7 @@ LIBS = ''
 INCLUDES= "-Ilib/minizip"
 task :default => 'idb'
 desc 'Compile idb'
-file 'idb' => ['idb.c', 'mobiledevice.h'] do |t|
+file 'idb' => ['idb.c', 'MobileDevice.h'] do |t|
   sh %Q["#{CC}" "#{CFLAGS}" "#{LDFLAGS}" -o "#{t.name}" \
 "#{LIBS}" "#{INCLUDES}" \
 -framework CoreFoundation \
@@ -24,7 +22,7 @@ task :install => 'idb' do |t|
   sh %Q[/bin/cp -f "#{t.prerequisites.join('" "')}" /usr/local/bin/]
 end
 
-desc 'Cleanup'
+desc 'Clean'
 task :clean do |t|
   sh 'rm -f idb'
 end

@@ -1,13 +1,13 @@
-#include "mobiledevice.h"
+#include "MobileDevice.h"
 
 #include <string.h>
 #include <stdlib.h>
+#include <sys/socket.h>
 
 #define HDOC( ... ) #__VA_ARGS__ "\n";
 
 #define CSTR2CFSTR(str) CFStringCreateWithCString(NULL, str, kCFStringEncodingUTF8)
 #define CFSTR2CSTR(str) (char *)CFStringGetCStringPtr(str, CFStringGetSystemEncoding())
-#define PRINT_DEVICE_VALUE(device, value) printf("%-40s: %s\n", value, (char *)CFStringGetCStringPtr(AMDeviceCopyValue(device, 0, CFSTR(value)), CFStringGetSystemEncoding()))
 
 /************************************************************************************************/
 enum CommandType
@@ -17,7 +17,9 @@ enum CommandType
   PRINT_APPS,
   INSTALL,
   UNINSTLL,
-  PRINT_SYSLOG
+  APP_DIR,
+  PRINT_SYSLOG,
+  TUNNEL
 };
 struct
 {
@@ -25,6 +27,8 @@ struct
   struct am_device_notification *notification;
   const char *app_path;
   const char *bundle_id;
+  uint16_t src_port;
+  uint16_t dst_port;
 } command;
 
 typedef struct am_device *AMDeviceRef;
@@ -42,8 +46,18 @@ void print_syslog(AMDeviceRef device);
 
 void install(AMDeviceRef device);
 void uninstall(AMDeviceRef device);
+void create_tunnel(AMDeviceRef device);
+void app_dir(AMDeviceRef device);
 
 /************************************************************************************************/
+void print_device_value(AMDeviceRef device, CFStringRef key)
+{
+  CFStringRef value = AMDeviceCopyValue(device, 0, key);
+  if (value != NULL) {
+    printf("%-40s: %s\n", CFSTR2CSTR(key), CFSTR2CSTR(value));
+    CFRelease(value);
+  }
+}
 
 void register_notification()
 {
@@ -56,23 +70,23 @@ void unregister_notification(int status)
   exit(status);
 }
 
-void connect(AMDeviceRef device)
+void connect_device(AMDeviceRef device)
 {
   AMDeviceConnect(device);
   assert(AMDeviceIsPaired(device));
   assert(AMDeviceValidatePairing(device) == 0);
   assert(AMDeviceStartSession(device) == 0);
 }
-void disconnect(AMDeviceRef device)
+void disconnect_device(AMDeviceRef device)
 {
   assert(AMDeviceStopSession(device) == 0);
   assert(AMDeviceDisconnect(device) == 0);
 }
 void connect_service(AMDeviceRef device, CFStringRef serviceName, unsigned int *serviceFd)
 {
-  connect(device);
+  connect_device(device);
   assert(AMDeviceStartService(device, serviceName, serviceFd, NULL) == 0);
-  disconnect(device);
+  disconnect_device(device);
 }
 /************************************************************************************************/
 /* Notification */
@@ -97,6 +111,10 @@ static void on_device_connected(AMDeviceRef device) {
     install(device);
   } else if (command.type == UNINSTLL) {
     uninstall(device);
+  } else if (command.type == TUNNEL) {
+    create_tunnel(device);
+  } else if (command.type == APP_DIR) {
+    app_dir(device);
   }
 }
 /************************************************************************************************/
@@ -121,41 +139,41 @@ void print_udid(AMDeviceRef device)
 void print_info(AMDeviceRef device)
 {
   printf ("%s\n","[INFO]");
-  connect(device);
+  connect_device(device);
 
-  PRINT_DEVICE_VALUE(device, "BasebandStatus");
-  PRINT_DEVICE_VALUE(device, "BasebandVersion");
-  PRINT_DEVICE_VALUE(device, "BluetoothAddress");
+  print_device_value(device, CFSTR("BasebandStatus"));
+  print_device_value(device, CFSTR("BasebandVersion"));
+  print_device_value(device, CFSTR("BluetoothAddress"));
 
-  PRINT_DEVICE_VALUE(device, "BuildVersion");
+  print_device_value(device, CFSTR("BuildVersion"));
+  
+  print_device_value(device, CFSTR("CPUArchitecture"));
+  print_device_value(device, CFSTR("DeviceClass"));
+  print_device_value(device, CFSTR("DeviceColor"));
+  print_device_value(device, CFSTR("DeviceName"));
+  print_device_value(device, CFSTR("FirmwareVersion"));
+  print_device_value(device, CFSTR("HardwareModel"));
+  print_device_value(device, CFSTR("HardwarePlatform"));
+  print_device_value(device, CFSTR("IntegratedCircuitCardIdentity"));
+  print_device_value(device, CFSTR("InternationalMobileSubscriberIdentity"));
+  print_device_value(device, CFSTR("MLBSerialNumber"));
 
-  PRINT_DEVICE_VALUE(device, "CPUArchitecture");
-  PRINT_DEVICE_VALUE(device, "DeviceClass");
-  PRINT_DEVICE_VALUE(device, "DeviceColor");
-  PRINT_DEVICE_VALUE(device, "DeviceName");
-  PRINT_DEVICE_VALUE(device, "FirmwareVersion");
-  PRINT_DEVICE_VALUE(device, "HardwareModel");
-  PRINT_DEVICE_VALUE(device, "HardwarePlatform");
-  PRINT_DEVICE_VALUE(device, "IntegratedCircuitCardIdentity");
-  PRINT_DEVICE_VALUE(device, "InternationalMobileSubscriberIdentity");
-  PRINT_DEVICE_VALUE(device, "MLBSerialNumber");
+  print_device_value(device, CFSTR("MobileSubscriberCountryCode"));
+  print_device_value(device, CFSTR("MobileSubscriberNetworkCode"));
+  print_device_value(device, CFSTR("ModelNumber"));
+  print_device_value(device, CFSTR("PhoneNumber"));
 
-  PRINT_DEVICE_VALUE(device, "MobileSubscriberCountryCode");
-  PRINT_DEVICE_VALUE(device, "MobileSubscriberNetworkCode");
-  PRINT_DEVICE_VALUE(device, "ModelNumber");
-  PRINT_DEVICE_VALUE(device, "PhoneNumber");
+  print_device_value(device, CFSTR("ProductType"));
+  print_device_value(device, CFSTR("ProductVersion"));
+  print_device_value(device, CFSTR("ProtocolVersion"));
 
-  PRINT_DEVICE_VALUE(device, "ProductType");
-  PRINT_DEVICE_VALUE(device, "ProductVersion");
-  PRINT_DEVICE_VALUE(device, "ProtocolVersion");
+  print_device_value(device, CFSTR("RegionInfo"));
+  print_device_value(device, CFSTR("SerialNumber"));
+  print_device_value(device, CFSTR("SIMStatus"));
 
-  PRINT_DEVICE_VALUE(device, "RegionInfo");
-  PRINT_DEVICE_VALUE(device, "SerialNumber");
-  PRINT_DEVICE_VALUE(device, "SIMStatus");
-
-  PRINT_DEVICE_VALUE(device, "TimeZone");
-  PRINT_DEVICE_VALUE(device, "UniqueDeviceID");
-  PRINT_DEVICE_VALUE(device, "WiFiAddress");
+  print_device_value(device, CFSTR("TimeZone"));
+  print_device_value(device, CFSTR("UniqueDeviceID"));
+  print_device_value(device, CFSTR("WiFiAddress"));
   
   unregister_notification(0);  
 }
@@ -178,7 +196,7 @@ static void print_bundle_id(const void *key, const void *value, void *context)
 
 void print_apps(AMDeviceRef device)
 {
-  connect(device);
+  connect_device(device);
   CFDictionaryRef apps;
   AMDeviceLookupApplications(device, 0, &apps);
 //  CFShow(apps);
@@ -192,7 +210,14 @@ void print_apps(AMDeviceRef device)
 ************************************************/
 void print_syslog(AMDeviceRef device)
 {
-  printf ("%s\n","print_syslog");
+  unsigned int socket;          /*  (*afc_connection)  */
+  connect_service(device, AMSVC_SYSLOG_RELAY, &socket);
+
+  char c;
+  while(recv(socket, &c, 1, 0) == 1) {
+    if(c != 0)
+      putchar(c);
+  }
   unregister_notification(0);
 }
 /************************************************
@@ -250,7 +275,7 @@ void install(AMDeviceRef device)
 void uninstall(AMDeviceRef device)
 {
   CFStringRef bundle_id = CSTR2CFSTR(command.bundle_id);
-  connect(device);
+  connect_device(device);
   
   mach_error_t result = AMDeviceSecureUninstallApplication(0,device, bundle_id, 0, NULL, 0);
   if (result != 0)
@@ -262,6 +287,81 @@ void uninstall(AMDeviceRef device)
   printf("Uninstalled bundle_id: %s\n", command.bundle_id);  
   unregister_notification(0);
 }
+/************************************************
+ idb dir 
+************************************************/
+void app_dir(AMDeviceRef device)
+{
+
+  CFStringRef bundle_id = CSTR2CFSTR(command.bundle_id);
+  
+  service_conn_t socket;          /*  (*afc_connection)  */
+  connect_device(device);
+
+  AMDeviceStartHouseArrestService(device, bundle_id, NULL, &socket, 0);
+
+  afc_connection *afc_conn;
+  int ret = AFCConnectionOpen(socket, 0, &afc_conn);
+  if (ret != ERR_SUCCESS) {
+    printf ( "AFCConnectionOpen = %i\n" , ret );
+    unregister_notification(1);  
+  }
+  struct afc_directory *dir;
+  char *dirent;
+  
+  AFCDirectoryOpen(afc_conn, ".", &dir); 
+
+  for (;;) {
+    AFCDirectoryRead(afc_conn, dir, &dirent);
+    if (!dirent) break;
+    if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue;
+    printf ("%s\n",dirent);
+//    callback(conn, path, dirent);
+  }
+
+  unregister_notification(0);
+}
+
+/************************************************
+ idb tunnel
+************************************************/
+void create_tunnel(AMDeviceRef device)
+{
+  connect_device(device);
+
+  service_conn_t handle;
+  int ret = USBMuxConnectByPort(AMDeviceGetConnectionID(device), htons(65535), &handle);
+  if (ret != ERR_SUCCESS) {
+    printf("USBMuxConnectByPort = %x\n", ret);
+    unregister_notification(1);  
+  }
+
+  afc_connection *afc_conn;
+  ret = AFCConnectionOpen(handle, 0, &afc_conn);
+  if (ret != ERR_SUCCESS) {
+    printf ( "AFCConnectionOpen = %i\n" , ret );
+    unregister_notification(1);  
+  }
+  printf ("connect: %x\n",ret);
+
+  struct afc_dictionary* dict;
+  CFDictionaryRef apps;
+
+  //ret = AFCDeviceInfoOpen(afc_con, &dict);
+  ret = AFCFileInfoOpen(afc_conn, "/Library/Preferences/SystemConfiguration/preferences.plist", &dict);
+//  afc_file_ref file;
+  char* devname;
+  char* key;
+  int i;
+  for (i = 0; i < 10; i++) {
+    AFCKeyValueRead(dict, &key, &devname);
+    printf("key %s, cont %s", key, devname) ;
+  }
+
+  printf ("%s\n","aa");
+  unregister_notification(0);  
+}
+
 /************************************************************************************************/
 /* Main */
 void usage()
@@ -271,9 +371,10 @@ void usage()
     command is below \n
     - udid \n
     - info \n
-    - install <app or ipa>
-    - uninstall <bundle_id>
-    - apps
+    - apps \n
+    - install <app_path or ipa_path>
+    - uninstall <bundle_id> \n 
+    - dir <bundle_id> \n
   );
   printf("%s\n", str);
 }
@@ -296,6 +397,13 @@ int main (int argc, char *argv[]) {
     command.app_path = argv[2];
   } else if ((argc == 3) && (strcmp(argv[1], "uninstall") == 0)) {
     command.type = UNINSTLL;
+    command.bundle_id = argv[2];
+  /* } else if ((argc == 4) && (strcmp(argv[1], "tunnel") == 0)) { */
+  /*   command.type = TUNNEL; */
+  /*   command.src_port = (uint16_t)atoi(argv[2]); */
+  /*   command.dst_port = (uint16_t)atoi(argv[3]); */
+  } else if ((argc == 3) && (strcmp(argv[1], "dir") == 0)) {
+    command.type = APP_DIR;
     command.bundle_id = argv[2];
   } else {
     fprintf(stderr, "Unknown command\n");
