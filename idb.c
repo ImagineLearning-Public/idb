@@ -7,6 +7,8 @@
 #include <pwd.h>
 #include <grp.h>        /* getgrgid(3) */
 
+#define LS_BORDER_DAY 180
+
 #define HDOC( ... ) #__VA_ARGS__ "\n";
 
 #define CSTR2CFSTR(str) CFStringCreateWithCString(NULL, str, kCFStringEncodingUTF8)
@@ -30,6 +32,7 @@ struct
   struct am_device_notification *notification;
   const char *app_path;
   const char *bundle_id;
+  const char *dir_path;
   uint16_t src_port;
   uint16_t dst_port;
 } command;
@@ -59,6 +62,16 @@ void create_tunnel(AMDeviceRef device);
 void app_dir(AMDeviceRef device);
 
 /************************************************************************************************/
+char* str_join(const char* a, const char* b)
+{
+  size_t la = strlen(a);
+  size_t lb = strlen(b);
+  char* p = malloc(la + lb + 1);
+  memcpy(p, a, la);
+  memcpy(p + la, b, lb + 1);
+  return p;
+}
+
 void print_device_value(AMDeviceRef device, CFStringRef key)
 {
   CFStringRef value = AMDeviceCopyValue(device, 0, key);
@@ -326,6 +339,11 @@ void uninstall(AMDeviceRef device)
 */
 static void on_file(char *file_name, CFMutableDictionaryRef file_dict)
 {
+
+  time_t std_time;
+  time(&std_time);
+  std_time -= (24 * 60 * 60 * LS_BORDER_DAY);
+
 //  CFShow(file_dict);
   CFStringRef ifmt = (CFStringRef)CFDictionaryGetValue(file_dict,CFSTR("st_ifmt"));
   char *ifmt_cstr = (CFStringCompare(ifmt,CFSTR("S_IFDIR"), kCFCompareLocalized) == kCFCompareEqualTo) ? "d" : "-";
@@ -338,7 +356,12 @@ static void on_file(char *file_name, CFMutableDictionaryRef file_dict)
   struct tm *mtimetm = localtime(&mtimel);
 
   char tmbuf[64];
-  strftime(tmbuf, sizeof tmbuf, "%b %d %H:%M", mtimetm); /* TODO */
+  if (std_time <= mtimel) {
+    strftime(tmbuf, sizeof tmbuf, "%b %d %H:%M", mtimetm);
+  } else {
+    strftime(tmbuf, sizeof tmbuf, "%b %d  %Y", mtimetm);
+  }
+
 
   printf ("%s---------%4s %s %6s %6s %s %s\n",
           ifmt_cstr,
@@ -346,7 +369,7 @@ static void on_file(char *file_name, CFMutableDictionaryRef file_dict)
           user.pwd->pw_name,
           user.grp->gr_name,
           CFSTR2CSTR(size),
-          tmbuf,                /* TODO */
+          tmbuf,
           file_name);
 }
 
@@ -369,16 +392,18 @@ void app_dir(AMDeviceRef device)
   struct afc_directory *dir;
   char *dirent;
   
-  AFCDirectoryOpen(afc_conn, ".", &dir); 
+  AFCDirectoryOpen(afc_conn, command.dir_path, &dir); 
   for (;;) {
     AFCDirectoryRead(afc_conn, dir, &dirent);
     if (!dirent) break;
-    if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue;
+    /* if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue; */
 
     struct afc_dictionary *file_info;
-    int r = AFCFileInfoOpen(afc_conn, dirent, &file_info);
+    char *dir_path = str_join(command.dir_path, "/");
+    dir_path = str_join(dir_path, dirent);
+    int r = AFCFileInfoOpen(afc_conn, dir_path, &file_info);
     if (r) {
-      printf("%s doesn't exist \n", dirent);
+      printf("%s doesn't exist \n", dir_path);
       continue;
     }
     CFMutableDictionaryRef file_dict = CFDictionaryCreateMutable(kCFAllocatorDefault,0,
@@ -449,9 +474,9 @@ void usage()
     - udid \n
     - info \n
     - apps \n
+    - ls <bundle_id> \n
     - install <app_path or ipa_path> \n
     - uninstall <bundle_id> \n 
-    - ls <bundle_id> \n
   );
   printf("%s\n", str);
 }
@@ -469,6 +494,14 @@ int main (int argc, char *argv[]) {
     command.type = PRINT_APPS;
   } else if ((argc == 2) && (strcmp(argv[1], "log") == 0)) {
     command.type = PRINT_SYSLOG;
+  } else if ((argc == 3) && (strcmp(argv[1], "ls") == 0)) {
+    command.type = APP_DIR;
+    command.bundle_id = argv[2];
+    command.dir_path  = ".";
+  } else if ((argc == 4) && (strcmp(argv[1], "ls") == 0)) {
+    command.type = APP_DIR;
+    command.bundle_id = argv[2];
+    command.dir_path  = argv[3];
   } else if ((argc == 3) && (strcmp(argv[1], "install") == 0)) {
     command.type = INSTALL;
     command.app_path = argv[2];
@@ -479,9 +512,6 @@ int main (int argc, char *argv[]) {
   /*   command.type = TUNNEL; */
   /*   command.src_port = (uint16_t)atoi(argv[2]); */
   /*   command.dst_port = (uint16_t)atoi(argv[3]); */
-  } else if ((argc == 3) && (strcmp(argv[1], "ls") == 0)) {
-    command.type = APP_DIR;
-    command.bundle_id = argv[2];
   } else {
     fprintf(stderr, "Unknown command\n");
     usage();
