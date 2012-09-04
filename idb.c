@@ -3,6 +3,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/socket.h>
+#include <time.h>
+#include <pwd.h>
+#include <grp.h>        /* getgrgid(3) */
 
 #define HDOC( ... ) #__VA_ARGS__ "\n";
 
@@ -30,6 +33,12 @@ struct
   uint16_t src_port;
   uint16_t dst_port;
 } command;
+
+struct
+{
+  struct passwd *pwd;
+  struct group  *grp ;  
+} user;
 
 typedef struct am_device *AMDeviceRef;
 
@@ -90,7 +99,8 @@ void connect_service(AMDeviceRef device, CFStringRef serviceName, unsigned int *
 }
 /************************************************************************************************/
 /* Notification */
-static void on_device_notification(struct am_device_notification_callback_info *info, void *arg) {
+static void on_device_notification(struct am_device_notification_callback_info *info, void *arg)
+{
   switch (info->msg) {
   case ADNCI_MSG_CONNECTED:
     on_device_connected(info->dev);
@@ -98,7 +108,8 @@ static void on_device_notification(struct am_device_notification_callback_info *
       break;
   }
 }
-static void on_device_connected(AMDeviceRef device) {
+static void on_device_connected(AMDeviceRef device)
+{
   if (command.type == PRINT_UDID) {
     print_udid(device);
   } else if (command.type == PRINT_INFO) {
@@ -116,6 +127,20 @@ static void on_device_connected(AMDeviceRef device) {
   } else if (command.type == APP_DIR) {
     app_dir(device);
   }
+}
+
+void create_user()
+{
+  uid_t uid;
+  struct passwd *pwd;
+  struct group *grp ;
+
+  uid = getuid();
+  pwd = getpwuid(uid);
+  grp = getgrgid( pwd->pw_gid );
+
+  user.pwd = pwd;
+  user.grp = grp;
 }
 /************************************************************************************************/
 /* Command Logic */
@@ -290,14 +315,49 @@ void uninstall(AMDeviceRef device)
 /************************************************
  idb dir 
 ************************************************/
+/*
+  keys
+  - st_ifmt (S_IFDIR, S_IFLNK)
+  - st_nlink
+  - st_size
+  - st_blocks
+  - st_mtime
+  - st_birthtime
+*/
+static void on_file(char *file_name, CFMutableDictionaryRef file_dict)
+{
+//  CFShow(file_dict);
+  CFStringRef ifmt = (CFStringRef)CFDictionaryGetValue(file_dict,CFSTR("st_ifmt"));
+  char *ifmt_cstr = (CFStringCompare(ifmt,CFSTR("S_IFDIR"), kCFCompareLocalized) == kCFCompareEqualTo) ? "d" : "-";
+
+  CFStringRef nlink = (CFStringRef)CFDictionaryGetValue(file_dict,CFSTR("st_nlink"));
+  CFStringRef size = (CFStringRef)CFDictionaryGetValue(file_dict,CFSTR("st_size"));
+  CFStringRef mtime = (CFStringRef)CFDictionaryGetValue(file_dict,CFSTR("st_mtime"));
+  time_t mtimel = atoll(CFSTR2CSTR(mtime)) / 1000000000L;
+
+  struct tm *mtimetm = localtime(&mtimel);
+
+  char tmbuf[64];
+  strftime(tmbuf, sizeof tmbuf, "%b %d %H:%M", mtimetm); /* TODO */
+
+  printf ("%s---------%4s %s %6s %6s %s %s\n",
+          ifmt_cstr,
+          CFSTR2CSTR(nlink),    /* TOOD  */
+          user.pwd->pw_name,
+          user.grp->gr_name,
+          CFSTR2CSTR(size),
+          tmbuf,                /* TODO */
+          file_name);
+}
+
 void app_dir(AMDeviceRef device)
 {
-
   CFStringRef bundle_id = CSTR2CFSTR(command.bundle_id);
   
-  service_conn_t socket;          /*  (*afc_connection)  */
+  service_conn_t socket;
   connect_device(device);
-
+  create_user();
+  
   AMDeviceStartHouseArrestService(device, bundle_id, NULL, &socket, 0);
 
   afc_connection *afc_conn;
@@ -310,15 +370,32 @@ void app_dir(AMDeviceRef device)
   char *dirent;
   
   AFCDirectoryOpen(afc_conn, ".", &dir); 
-
   for (;;) {
     AFCDirectoryRead(afc_conn, dir, &dirent);
     if (!dirent) break;
     if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue;
-    printf ("%s\n",dirent);
-//    callback(conn, path, dirent);
-  }
 
+    struct afc_dictionary *file_info;
+    int r = AFCFileInfoOpen(afc_conn, dirent, &file_info);
+    if (r) {
+      printf("%s doesn't exist \n", dirent);
+      continue;
+    }
+    CFMutableDictionaryRef file_dict = CFDictionaryCreateMutable(kCFAllocatorDefault,0,
+                                                          &kCFTypeDictionaryKeyCallBacks,
+                                                          &kCFTypeDictionaryValueCallBacks);
+    char *key, *value;
+    AFCKeyValueRead(file_info, &key, &value);
+    while(key || value) {
+      CFStringRef k = CSTR2CFSTR(key);
+      CFStringRef v = CSTR2CFSTR(value);
+      CFDictionarySetValue(file_dict, k, v);
+      AFCKeyValueRead(file_info, &key, &value);
+    }
+    AFCKeyValueClose(file_info);
+    on_file(dirent, file_dict);
+  }
+  AFCDirectoryClose(afc_conn, dir);
   unregister_notification(0);
 }
 
@@ -372,9 +449,9 @@ void usage()
     - udid \n
     - info \n
     - apps \n
-    - install <app_path or ipa_path>
+    - install <app_path or ipa_path> \n
     - uninstall <bundle_id> \n 
-    - dir <bundle_id> \n
+    - ls <bundle_id> \n
   );
   printf("%s\n", str);
 }
@@ -402,7 +479,7 @@ int main (int argc, char *argv[]) {
   /*   command.type = TUNNEL; */
   /*   command.src_port = (uint16_t)atoi(argv[2]); */
   /*   command.dst_port = (uint16_t)atoi(argv[3]); */
-  } else if ((argc == 3) && (strcmp(argv[1], "dir") == 0)) {
+  } else if ((argc == 3) && (strcmp(argv[1], "ls") == 0)) {
     command.type = APP_DIR;
     command.bundle_id = argv[2];
   } else {
