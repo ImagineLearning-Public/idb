@@ -513,7 +513,8 @@ int AMDeviceInstallApplication(int fd, CFStringRef path, CFDictionaryRef options
 
 int AMDeviceSecureUninstallApplication(int unknown0, struct am_device *device, CFStringRef bundle_id, int unknown1, void *callback, int cbarg);
 
-int AMDeviceLookupApplications(struct am_device *device, int unknown0, CFDictionaryRef* apps);
+//int AMDeviceLookupApplications(struct am_device *device, int unknown0, CFDictionaryRef* apps);
+int AMDeviceLookupApplications(struct am_device *device, CFDictionaryRef options, CFDictionaryRef* apps);
 
 int USBMuxConnectByPort(int conn, int port, service_conn_t *handle);
 

@@ -218,33 +218,79 @@ void print_info(AMDeviceRef device)
 /************************************************
  idb apps
 ************************************************/
-static void print_bundle_id(const void *key, const void *value, void *context)
+static void on_app(const void *key, const void *value, void *context)
 {
   if ((key == NULL) || (value == NULL))
   {
     return;
   }
   char *bundle_id = CFSTR2CSTR((CFStringRef)key);
-  if (bundle_id != NULL)
-  {
-    printf("%s\n", bundle_id);
-  }
-//  CFShow(value);
-}
+  if (bundle_id == NULL) return;
 
+  CFDictionaryRef app_dict = (CFDictionaryRef)value;
+  /*
+    ApplicationType (System or User)
+    CFBundleDisplayName
+    CFBundleName
+  */
+  CFStringRef app_type = CFDictionaryGetValue(app_dict, CFSTR("ApplicationType"));
+  if (CFStringCompare(app_type, CFSTR("User"), kCFCompareLocalized) == kCFCompareEqualTo) {
+    printf ("%s\n",bundle_id);
+  } else if (CFStringCompare(app_type, CFSTR("System"), kCFCompareLocalized) == kCFCompareEqualTo) {
+//    printf ("%s\n",bundle_id);
+  }
+}
+CFComparisonResult CompareBundleID (
+  const void *string1, const void *string2, void *locale)
+{
+      static CFOptionFlags compareOptions = kCFCompareCaseInsensitive |
+                                                  kCFCompareNonliteral |
+                                                  kCFCompareLocalized |
+                                                  kCFCompareNumerically |
+                                                  kCFCompareWidthInsensitive |
+        kCFCompareForcedOrdering;
+
+      CFRange string1Range = CFRangeMake(0, CFStringGetLength(string1));
+
+          return CFStringCompareWithOptionsAndLocale
+            (string1, string2, string1Range, compareOptions, (CFLocaleRef)locale);
+}
 void print_apps(AMDeviceRef device)
 {
   connect_device(device);
-  CFDictionaryRef apps;
-  AMDeviceLookupApplications(device, 0, &apps);
-//  CFShow(apps);
-  CFDictionaryApplyFunction(apps, print_bundle_id, NULL);
-  CFRelease(apps);
 
+  /* CFStringRef k[] = { CFSTR("kLookupReturnAttributesKey") }, v[] = { CFSTR("User") }; */
+  /* CFDictionaryRef options = CFDictionaryCreate(NULL, (const void **)&k, (const void **)&v, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks); */
+
+  CFDictionaryRef apps;
+  AMDeviceLookupApplications(device, NULL, &apps);
+  //CFDictionaryApplyFunction(apps, print_bundle_id, NULL);
+  CFIndex count = CFDictionaryGetCount(apps);
+  CFTypeRef *keysTypeRef = (CFTypeRef *) malloc( count * sizeof(CFTypeRef) );
+  CFDictionaryGetKeysAndValues(apps, (const void **) keysTypeRef, NULL);
+  const void **keys = (const void **) keysTypeRef;
+
+  /* sort */
+  CFMutableArrayRef keyArray = CFArrayCreateMutable(kCFAllocatorDefault, count, NULL);
+  int i;
+  for (i=0; i<count; i++) {
+    CFArrayAppendValue(keyArray, keys[i]);
+  }
+  CFRange arrayRange = CFRangeMake(0, CFArrayGetCount(keyArray));
+  CFLocaleRef locale = CFLocaleCopyCurrent();
+  CFArraySortValues(keyArray, arrayRange,
+                     CompareBundleID, (void *)locale);
+  for (i=0; i<count; i++) {
+    CFStringRef bundle_id = CFArrayGetValueAtIndex(keyArray, i);
+    CFDictionaryRef app_dict = CFDictionaryGetValue(apps, bundle_id);
+    on_app(bundle_id, app_dict, NULL);
+  }
+  
+  CFRelease(apps);
   unregister_notification(0);  
 }
 /************************************************
- idb lob
+ idb log
 ************************************************/
 void print_syslog(AMDeviceRef device)
 {
@@ -396,7 +442,9 @@ void app_dir(AMDeviceRef device)
   for (;;) {
     AFCDirectoryRead(afc_conn, dir, &dirent);
     if (!dirent) break;
-    /* if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue; */
+
+    /* can't traverse */
+    if (strcmp(command.dir_path, ".") == 0 && strcmp(dirent, "..") == 0) continue;
 
     struct afc_dictionary *file_info;
     char *dir_path = str_join(command.dir_path, "/");
@@ -445,22 +493,7 @@ void create_tunnel(AMDeviceRef device)
     unregister_notification(1);  
   }
   printf ("connect: %x\n",ret);
-
-  struct afc_dictionary* dict;
-  CFDictionaryRef apps;
-
-  //ret = AFCDeviceInfoOpen(afc_con, &dict);
-  ret = AFCFileInfoOpen(afc_conn, "/Library/Preferences/SystemConfiguration/preferences.plist", &dict);
-//  afc_file_ref file;
-  char* devname;
-  char* key;
-  int i;
-  for (i = 0; i < 10; i++) {
-    AFCKeyValueRead(dict, &key, &devname);
-    printf("key %s, cont %s", key, devname) ;
-  }
-
-  printf ("%s\n","aa");
+  
   unregister_notification(0);  
 }
 
@@ -474,7 +507,7 @@ void usage()
     - udid \n
     - info \n
     - apps \n
-    - ls <bundle_id> \n
+    - ls <bundle_id> <relative_path>\n
     - install <app_path or ipa_path> \n
     - uninstall <bundle_id> \n 
   );
@@ -517,8 +550,8 @@ int main (int argc, char *argv[]) {
     usage();
     exit(1);
   }
-  AMDSetLogLevel(5);
-  AMDAddLogFileDescriptor(fileno(stderr));
+//  AMDSetLogLevel(5);
+//  AMDAddLogFileDescriptor(fileno(stderr));
   register_notification();
   return 0;
 }
