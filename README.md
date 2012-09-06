@@ -23,8 +23,11 @@ connect your device with usb
 > $ idb apps
 
 > iBooks                  com.apple.iBooks
+
 > Find My iPhone          com.apple.mobileme.fmip1
+
 > Podcasts                com.apple.podcasts
+
 > -                       com.apple.Remote
 
 * install app
