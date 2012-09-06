@@ -2,10 +2,10 @@ require 'rubygems'
 require 'rake'
 
 CC = 'gcc'
-CFLAGS = '-Wall'
-LDFLAGS = '-lz'
+CFLAGS = ''
+LDFLAGS = ''
 LIBS = ''
-INCLUDES= "-Ilib/minizip"
+INCLUDES= ""
 task :default => 'idb'
 desc 'Compile idb'
 file 'idb' => ['idb.c', 'MobileDevice.h'] do |t|
