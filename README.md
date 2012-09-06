@@ -28,7 +28,7 @@ connect your device with usb
 
 > Podcasts                com.apple.podcasts
 
-> -                       com.apple.Remote
+> \-                      com.apple.Remote
 
 * install app
 
