@@ -9,6 +9,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 
 #define LS_BORDER_DAY 180
@@ -19,7 +20,23 @@
 #define CSTR2CFSTR(str) CFStringCreateWithCString(NULL, str, kCFStringEncodingUTF8)
 #define CFSTR2CSTR(str) (char *)CFStringGetCStringPtr(str, CFStringGetSystemEncoding())
 
-
+#define RESET       "\033[0m"
+#define BLACK       "\033[30m"             /* Black */
+#define RED         "\033[31m"             /* Red */
+#define GREEN       "\033[32m"             /* Green */
+#define YELLOW      "\033[33m"             /* Yellow */
+#define BLUE        "\033[34m"             /* Blue */
+#define MAGENTA     "\033[35m"             /* Magenta */
+#define CYAN        "\033[36m"             /* Cyan */
+#define WHITE       "\033[37m"             /* White */
+#define BOLDBLACK   "\033[1m\033[30m"      /* Bold Black */
+#define BOLDRED     "\033[1m\033[31m"      /* Bold Red */
+#define BOLDGREEN   "\033[1m\033[32m"      /* Bold Green */
+#define BOLDYELLOW  "\033[1m\033[33m"      /* Bold Yellow */
+#define BOLDBLUE    "\033[1m\033[34m"      /* Bold Blue */
+#define BOLDMAGENTA "\033[1m\033[35m"      /* Bold Magenta */
+#define BOLDCYAN    "\033[1m\033[36m"      /* Bold Cyan */
+#define BOLDWHITE   "\033[1m\033[37m"      /* Bold White */
 /************************************************************************************************/
 enum CommandType
 {
@@ -28,6 +45,7 @@ enum CommandType
   PRINT_APPS,
   INSTALL,
   UNINSTLL,
+  COPY_DIR,
   APP_DIR,
   PRINT_SYSLOG,
   TUNNEL
@@ -76,6 +94,7 @@ void install(AMDeviceRef device);
 void uninstall(AMDeviceRef device);
 void create_tunnel(AMDeviceRef device);
 void app_dir(AMDeviceRef device);
+void copy_dir(AMDeviceRef device);
 
 /************************************************************************************************/
 char* str_join(const char *a, const char *b)
@@ -88,6 +107,28 @@ char* str_join(const char *a, const char *b)
   return p;
 }
 
+char* file_join(const char *a, const char *b)
+{
+  size_t la = strlen(a);
+  size_t lb = strlen(b);
+  char *sep = "/";
+
+  char* p = malloc(la + 1 + lb + 1);
+  memcpy(p, a, la);
+  memcpy(p + la, sep, 1);
+  memcpy(p + la + 1, b, lb + 1);
+  return p;
+}
+
+void make_dir(const char *path)
+{
+  struct stat statbuf;
+  mode_t mode = 0755;
+  stat(path, &statbuf);
+  if (!S_ISDIR(statbuf.st_mode)) {
+    mkdir(path, mode);
+  }
+}
 
 /************************************************************************************************/
 void print_device_value(AMDeviceRef device, CFStringRef key)
@@ -157,6 +198,8 @@ static void on_device_connected(AMDeviceRef device)
     create_tunnel(device);
   } else if (command.type == APP_DIR) {
     app_dir(device);
+  } else if (command.type == COPY_DIR) {
+    copy_dir(device);
   }
 }
 
@@ -494,6 +537,134 @@ void app_dir(AMDeviceRef device)
 }
 
 /************************************************
+ idb cp <bundle_id> <dest_dir>
+************************************************/
+#define BUFFER_SIZE 1024 * 1024
+
+void on_copy_file(afc_connection *afc_conn, const char *file_name)
+{
+
+  char *file_path = file_join(command.bundle_id, file_name);
+  FILE *file = fopen(file_path, "wb");
+  if (file == NULL) {
+    printf("Cannot Open: %s", file_path);
+  }
+
+  afc_file_ref fd;
+  int ret = AFCFileRefOpen(afc_conn, file_name, 1, &fd);
+  if (ret) {
+    //printf ( "Cannot Open: %s \n AFCFileRefOpen = %i\n" , file_name, ret );
+    fprintf(stderr, "[" RED "NG" RESET "] %s/%s \n", command.bundle_id, file_name);
+    fclose(file);
+    return;
+  }
+  fprintf(stdout, "[" GREEN "OK" RESET "] %s/%s \n", command.bundle_id, file_name);
+
+  int bytesRead = BUFFER_SIZE;
+  char *buf = (char *)malloc(BUFFER_SIZE);
+  if (!buf) {
+    return;
+  }
+
+  for (;;)
+  {
+    ret = AFCFileRefRead(afc_conn, fd, buf, &bytesRead);
+    if (ret) {
+      printf ( "Cannot Read: AFCFileRefOpen = %i\n" ,ret );
+      free(buf);
+      return;
+    }
+    if (bytesRead == 0) break;
+    if (fwrite(buf, bytesRead, 1, file) != 1) {
+      printf ("%s\n","perrott");
+        perror(file_path);
+        exit(1);
+    }
+  }
+
+  free(buf);
+  ret = AFCFileRefClose(afc_conn, fd);
+  fclose(file);
+
+  free(file_path);
+}
+
+static void on_copy_dir(afc_connection *afc_conn, const char *path)
+{
+  struct afc_directory *dir;
+  char *dirent;
+  AFCDirectoryOpen(afc_conn, path, &dir);
+  for (;;) {
+    AFCDirectoryRead(afc_conn, dir, &dirent);
+    if (!dirent) break;
+
+    /* can't traverse */
+    if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue;
+
+    struct afc_dictionary *file_info;
+
+    char *dir_path = malloc(strlen(path) + 1);
+    strcpy(dir_path, path);
+    if (strcmp(dir_path, "") != 0 ) {
+      dir_path = str_join(dir_path, "/");
+    }
+    dir_path = str_join(dir_path, dirent);
+
+    int r = AFCFileInfoOpen(afc_conn, dir_path, &file_info);
+    if (r) {
+      printf("%s doesn't exist \n", dir_path);
+      continue;
+    }
+    CFMutableDictionaryRef file_dict = CFDictionaryCreateMutable(kCFAllocatorDefault,0,
+                                                          &kCFTypeDictionaryKeyCallBacks,
+                                                          &kCFTypeDictionaryValueCallBacks);
+    char *key, *value;
+    AFCKeyValueRead(file_info, &key, &value);
+    while(key || value) {
+      CFStringRef k = CSTR2CFSTR(key);
+      CFStringRef v = CSTR2CFSTR(value);
+      CFDictionarySetValue(file_dict, k, v);
+      AFCKeyValueRead(file_info, &key, &value);
+    }
+    AFCKeyValueClose(file_info);
+
+    CFStringRef ifmt = (CFStringRef)CFDictionaryGetValue(file_dict,CFSTR("st_ifmt"));
+    if (CFStringCompare(ifmt,CFSTR("S_IFDIR"), kCFCompareLocalized) == kCFCompareEqualTo) {
+      char *tmp = file_join(command.bundle_id, dir_path);
+      make_dir(tmp);
+      free(tmp);
+      on_copy_dir(afc_conn, dir_path);
+    } else {
+      on_copy_file(afc_conn, dir_path);
+    }
+    free(dir_path);
+  }
+  AFCDirectoryClose(afc_conn, dir);
+}
+
+void copy_dir(AMDeviceRef device)
+{
+  CFStringRef bundle_id = CSTR2CFSTR(command.bundle_id);
+
+  service_conn_t socket;
+  connect_device(device);
+  create_user();
+
+  AMDeviceStartHouseArrestService(device, bundle_id, NULL, &socket, 0);
+
+  afc_connection *afc_conn;
+  int ret = AFCConnectionOpen(socket, 0, &afc_conn);
+  if (ret != ERR_SUCCESS) {
+    printf ( "AFCConnectionOpen = %i\n" , ret );
+    unregister_notification(1);
+  }
+
+  make_dir(command.bundle_id);  /* root_dir */
+  on_copy_dir(afc_conn, command.dir_path);
+  unregister_notification(0);
+}
+
+/************************************************
  idb tunnel <iPhone port> <local port>
 ************************************************/
 service_conn_t create_local_socket()
@@ -617,6 +788,7 @@ void usage()
     - info \n
     - apps \n
     - ls <bundle_id> <relative_path>\n
+    - cp <bundle_id> <relative_path>\n
     - install <app_path or ipa_path> \n
     - uninstall <bundle_id> \n 
   );
@@ -634,7 +806,7 @@ int main (int argc, char *argv[]) {
     command.type = PRINT_INFO;
   } else if ((argc == 2) && (strcmp(argv[1], "apps") == 0)) {
     command.type = PRINT_APPS;
-  } else if ((argc == 2) && (strcmp(argv[1], "log") == 0)) {
+  } else if ((argc == 2) && (strcmp(argv[1], "logcat") == 0)) {
     command.type = PRINT_SYSLOG;
   } else if ((argc == 3) && (strcmp(argv[1], "ls") == 0)) {
     command.type = APP_DIR;
@@ -642,6 +814,14 @@ int main (int argc, char *argv[]) {
     command.dir_path  = ".";
   } else if ((argc == 4) && (strcmp(argv[1], "ls") == 0)) {
     command.type = APP_DIR;
+    command.bundle_id = argv[2];
+    command.dir_path  = argv[3];
+  } else if ((argc == 3) && (strcmp(argv[1], "cp") == 0)) {
+    command.type = COPY_DIR;
+    command.bundle_id = argv[2];
+    command.dir_path  = "";
+  } else if ((argc == 4) && (strcmp(argv[1], "cp") == 0)) {
+    command.type = COPY_DIR;
     command.bundle_id = argv[2];
     command.dir_path  = argv[3];
   } else if ((argc == 3) && (strcmp(argv[1], "install") == 0)) {
