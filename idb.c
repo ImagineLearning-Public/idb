@@ -7,6 +7,7 @@
 #include <grp.h>        /* getgrgid(3) */
 
 #include <arpa/inet.h>
+#include <dirent.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -37,6 +38,12 @@
 #define BOLDMAGENTA "\033[1m\033[35m"      /* Bold Magenta */
 #define BOLDCYAN    "\033[1m\033[36m"      /* Bold Cyan */
 #define BOLDWHITE   "\033[1m\033[37m"      /* Bold White */
+
+enum {
+  AFC_FILE_READ = 1,
+  AFC_FILE_WRITE,
+  AFC_FILE_READWRITE
+};
 /************************************************************************************************/
 enum CommandType
 {
@@ -47,6 +54,7 @@ enum CommandType
   UNINSTLL,
   COPY_DIR,
   APP_DIR,
+  UP_DIR,
   PRINT_SYSLOG,
   TUNNEL
 };
@@ -95,6 +103,7 @@ void uninstall(AMDeviceRef device);
 void create_tunnel(AMDeviceRef device);
 void app_dir(AMDeviceRef device);
 void copy_dir(AMDeviceRef device);
+void up_dir(AMDeviceRef device);
 
 /************************************************************************************************/
 char* str_join(const char *a, const char *b)
@@ -200,6 +209,8 @@ static void on_device_connected(AMDeviceRef device)
     app_dir(device);
   } else if (command.type == COPY_DIR) {
     copy_dir(device);
+  } else if (command.type == UP_DIR) {
+    up_dir(device);
   }
 }
 
@@ -323,11 +334,12 @@ void print_apps(AMDeviceRef device)
 {
   connect_device(device);
 
-  /* CFStringRef k[] = { CFSTR("kLookupReturnAttributesKey") }, v[] = { CFSTR("User") }; */
+  /* CFStringRef k[] = { CFSTR("kLookupReturnAttributesKey") }, v[] = { CFSTR("User") };  */
   /* CFDictionaryRef options = CFDictionaryCreate(NULL, (const void **)&k, (const void **)&v, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks); */
+  CFDictionaryRef options = NULL;
 
   CFDictionaryRef apps;
-  AMDeviceLookupApplications(device, NULL, &apps);
+  AMDeviceLookupApplications(device, options, &apps);
   //CFDictionaryApplyFunction(apps, print_bundle_id, NULL);
   CFIndex count = CFDictionaryGetCount(apps);
   CFTypeRef *keysTypeRef = (CFTypeRef *) malloc( count * sizeof(CFTypeRef) );
@@ -537,13 +549,12 @@ void app_dir(AMDeviceRef device)
 }
 
 /************************************************
- idb cp <bundle_id> <dest_dir>
+ idb cp <bundle_id> <relative_dir>
 ************************************************/
 #define BUFFER_SIZE 1024 * 1024
 
 void on_copy_file(afc_connection *afc_conn, const char *file_name)
 {
-
   char *file_path = file_join(command.bundle_id, file_name);
   FILE *file = fopen(file_path, "wb");
   if (file == NULL) {
@@ -551,7 +562,7 @@ void on_copy_file(afc_connection *afc_conn, const char *file_name)
   }
 
   afc_file_ref fd;
-  int ret = AFCFileRefOpen(afc_conn, file_name, 1, &fd);
+  int ret = AFCFileRefOpen(afc_conn, file_name, AFC_FILE_READ, &fd);
   if (ret) {
     //printf ( "Cannot Open: %s \n AFCFileRefOpen = %i\n" , file_name, ret );
     fprintf(stderr, "[" RED "NG" RESET "] %s/%s \n", command.bundle_id, file_name);
@@ -566,7 +577,7 @@ void on_copy_file(afc_connection *afc_conn, const char *file_name)
     return;
   }
 
-  for (;;)
+  for(;;)
   {
     ret = AFCFileRefRead(afc_conn, fd, buf, &bytesRead);
     if (ret) {
@@ -577,8 +588,8 @@ void on_copy_file(afc_connection *afc_conn, const char *file_name)
     if (bytesRead == 0) break;
     if (fwrite(buf, bytesRead, 1, file) != 1) {
       printf ("%s\n","perrott");
-        perror(file_path);
-        exit(1);
+      perror(file_path);
+      exit(1);
     }
   }
 
@@ -667,6 +678,97 @@ void copy_dir(AMDeviceRef device)
   }
 
   on_copy_dir(afc_conn, command.dir_path);
+  unregister_notification(0);
+}
+/************************************************
+ idb up <bundle_id> <relative_dir>
+************************************************/
+void on_up_file(afc_connection *afc_conn, const char *file_name)
+{
+  char *file_path = file_join(command.bundle_id, file_name);
+
+  FILE *file = fopen(file_path, "rb");
+  if (file == NULL) {
+     printf("Cannot Open: %s\n", file_path);
+     return;
+  }
+
+  afc_file_ref fd;
+  int ret = AFCFileRefOpen(afc_conn, file_name, AFC_FILE_WRITE, &fd);
+  if (ret) {
+    //printf ( "Cannot Open: %s \n AFCFileRefOpen = %i\n" , file_name, ret );
+    fprintf(stderr, "[" RED "NG" RESET "] %s \n", file_name);
+    fclose(file);
+    return;
+  }
+  fprintf(stdout, "[" GREEN "OK" RESET "] %s \n", file_name);
+
+  size_t read;
+  char *buf = (char *)malloc(BUFFER_SIZE);
+  if (!buf) {
+    return;
+  }
+
+  while ((read = fread(buf, 1, BUFFER_SIZE, file))) {
+    AFCFileRefWrite(afc_conn, fd, buf, read);
+  }
+
+  free(buf);
+  ret = AFCFileRefClose(afc_conn, fd);
+
+  fclose(file);
+  free(file_path);
+}
+
+void on_up_dir(afc_connection *afc_conn, const char *file_name)
+{
+  DIR* dir;
+  struct dirent* dp;
+
+  char *dir_path = file_join(command.bundle_id, file_name);
+  if ((dir = opendir(dir_path)) == NULL){
+    printf("cannnot open dir %s\n", file_name);
+    exit(1);
+  }
+
+  while((dp = readdir(dir)) != NULL){
+    char *dirent = dp->d_name;
+    if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue;
+
+    char *path = file_join(dir_path, dirent);
+    char *relative_path = file_join(file_name, dirent);
+    if (opendir(path) == NULL){
+      on_up_file(afc_conn, relative_path);
+    } else {
+      on_up_dir(afc_conn, relative_path);
+    }
+    free(relative_path);
+    free(path);
+  }
+  closedir(dir);
+  free(dir_path);
+}
+
+void up_dir(AMDeviceRef device)
+{
+  CFStringRef bundle_id = CSTR2CFSTR(command.bundle_id);
+
+  service_conn_t socket;
+  connect_device(device);
+  create_user();
+
+  AMDeviceStartHouseArrestService(device, bundle_id, NULL, &socket, 0);
+
+  afc_connection *afc_conn;
+  int ret = AFCConnectionOpen(socket, 0, &afc_conn);
+  if (ret != ERR_SUCCESS) {
+    printf ( "AFCConnectionOpen = %i\n" , ret );
+    unregister_notification(1);
+    return;
+  }
+
+  on_up_dir(afc_conn,  command.dir_path);
+
   unregister_notification(0);
 }
 
@@ -794,7 +896,8 @@ void usage()
     - info \n
     - apps \n
     - ls <bundle_id> <relative_path>\n
-    - cp <bundle_id> \n
+    - cp <bundle_id> <relative_path>\n
+    - up <bundle_id> <relative_path>\n
     - install <app_path or ipa_path> \n
     - uninstall <bundle_id> \n 
   );
@@ -828,6 +931,10 @@ int main (int argc, char *argv[]) {
     command.dir_path  = "";
   } else if ((argc == 4) && (strcmp(argv[1], "cp") == 0)) {
     command.type = COPY_DIR;
+    command.bundle_id = argv[2];
+    command.dir_path  = argv[3];
+  } else if ((argc == 4) && (strcmp(argv[1], "up") == 0)) {
+    command.type = UP_DIR;
     command.bundle_id = argv[2];
     command.dir_path  = argv[3];
   } else if ((argc == 3) && (strcmp(argv[1], "install") == 0)) {
