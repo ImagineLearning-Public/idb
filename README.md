@@ -23,44 +23,39 @@ Connect your device with usb
 ### Print udid
 
     $ idb udid
-    > qwertyuiopasdfghjkl1
+    qwertyuiopasdfghjkl1
 
 ### Print info
 
-    > $ idb info
-
-    > [INFO]
+    $ idb info
+    [INFO]
     ...
 
-* print apps (User appplications)
+### Print apps (User appplications)
 
-> $ idb apps
+    $ idb apps
+    iBooks                  com.apple.iBooks
+    Find My iPhone          com.apple.mobileme.fmip1
+    Podcasts                com.apple.podcasts
+    \-                      com.apple.Remote
 
-> iBooks                  com.apple.iBooks
+### Install app
 
-> Find My iPhone          com.apple.mobileme.fmip1
+    $ idb install /path/to/demo.ipa
 
-> Podcasts                com.apple.podcasts
+    $ idb install /path/to/demo.app
 
-> \-                      com.apple.Remote
+### Uninstall app
 
-* install app
+    $ idb unintall com.apple.iBooks
 
-> $ idb install /path/to/demo.ipa
+### List directory
 
-> $ idb install /path/to/demo.app
+    $ idb ls com.apple.iBooks 
 
-* uninstall app
+    $ idb ls com.apple.iBooks Documents
 
-> $ idb unintall com.apple.iBooks
+### Print syslog
 
-* list directory
-
-> $ idb ls com.apple.iBooks 
-
-> $ idb ls com.apple.iBooks Documents
-
-* print syslog
-
-> $ idb log
+    $ idb logcat
 
