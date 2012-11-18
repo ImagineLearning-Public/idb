@@ -1,22 +1,36 @@
-iOS Device Bridge
---------
+# iOS Device Bridge
 
-## usage
 
-connect your device with usb
+## Installation
 
-* print udid
+clone this repository
 
->  $ idb udid
+    $ hub clone seiji/idb
 
-> qwertyuiopasdfghjkl1
+And then execute
 
-* print info
+    $ cd idb
+    $ rake
 
-> $ idb info
+print usage
 
-> [INFO]
-...
+    $ idb
+
+## Usage
+
+Connect your device with usb
+
+### Print udid
+
+    $ idb udid
+    > qwertyuiopasdfghjkl1
+
+### Print info
+
+    > $ idb info
+
+    > [INFO]
+    ...
 
 * print apps (User appplications)
 

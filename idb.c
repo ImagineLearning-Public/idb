@@ -547,7 +547,7 @@ void on_copy_file(afc_connection *afc_conn, const char *file_name)
   char *file_path = file_join(command.bundle_id, file_name);
   FILE *file = fopen(file_path, "wb");
   if (file == NULL) {
-    printf("Cannot Open: %s", file_path);
+    printf("Cannot Open: %s\n", file_path);
   }
 
   afc_file_ref fd;
@@ -660,6 +660,12 @@ void copy_dir(AMDeviceRef device)
   }
 
   make_dir(command.bundle_id);  /* root_dir */
+  if (strcmp(command.dir_path, "") != 0 ) {
+    char *root_dir = file_join(command.bundle_id, command.dir_path);
+    make_dir(root_dir);
+    free(root_dir);
+  }
+
   on_copy_dir(afc_conn, command.dir_path);
   unregister_notification(0);
 }
@@ -788,7 +794,7 @@ void usage()
     - info \n
     - apps \n
     - ls <bundle_id> <relative_path>\n
-    - cp <bundle_id> <relative_path>\n
+    - cp <bundle_id> \n
     - install <app_path or ipa_path> \n
     - uninstall <bundle_id> \n 
   );
