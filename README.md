@@ -37,12 +37,11 @@ Connect your device with usb
     iBooks                  com.apple.iBooks
     Find My iPhone          com.apple.mobileme.fmip1
     Podcasts                com.apple.podcasts
-    \-                      com.apple.Remote
+    -                       com.apple.Remote
 
 ### Install app
 
     $ idb install /path/to/demo.ipa
-
     $ idb install /path/to/demo.app
 
 ### Uninstall app
@@ -52,14 +51,16 @@ Connect your device with usb
 ### List directory
 
     $ idb ls com.apple.iBooks 
-
     $ idb ls com.apple.iBooks Documents
 
 ### Copy directory
 
     $ idb cp com.apple.iBooks 
-
     $ idb cp com.apple.iBooks Documents
+
+### Up directory
+
+    $ idb up com.apple.iBooks Documents
 
 ### Print syslog
 
