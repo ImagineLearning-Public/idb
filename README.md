@@ -55,6 +55,12 @@ Connect your device with usb
 
     $ idb ls com.apple.iBooks Documents
 
+### Copy directory
+
+    $ idb cp com.apple.iBooks 
+
+    $ idb cp com.apple.iBooks Documents
+
 ### Print syslog
 
     $ idb logcat
