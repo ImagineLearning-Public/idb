@@ -144,7 +144,7 @@ void print_device_value(AMDeviceRef device, CFStringRef key)
 {
   CFStringRef value = AMDeviceCopyValue(device, 0, key);
   if (value != NULL) {
-    printf("%-20s\t%s\n", CFSTR2CSTR(key), CFSTR2CSTR(value));
+    printf("%-40s\t%s\n", CFSTR2CSTR(key), CFSTR2CSTR(value));
     CFRelease(value);
   }
 }
@@ -304,13 +304,98 @@ static void on_app(const void *key, const void *value, void *context)
     ApplicationType (System or User)
     CFBundleDisplayName
     CFBundleName
-  */
-  CFStringRef app_type = CFDictionaryGetValue(app_dict, CFSTR("ApplicationType"));
-  CFStringRef app_name = CFDictionaryGetValue(app_dict, CFSTR("CFBundleDisplayName"));
 
-  char *app_name_cstr = (app_name != NULL) ? CFSTR2CSTR(app_name) : "-";
+    CFBundleInfoDictionaryVersion: 6.0
+    Entitlements: <CFBasicHash>
+    DTPlatformVersion: 5.1
+    DTSDKName: iphoneos5.1
+    CFBundleName: name
+    ApplicationType: User
+    Container: /private/var/mobile/Applications/<UDID>
+    LSRequiresIPhoneOS: <CFBoolean>
+    CFBundleDisplayName: * include multibyte
+    CodeInfoIdentifier:
+    CFBundleDocumentTypes:
+    DTSDKBuild: 9B176
+    CFBundleSupportedPlatforms: ( iPhoneOS )
+    UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+    BuildMachineOSBuild: 11G63
+    SignerIdentity: Apple iPhone OS Application Signing
+    CFBundlePackageType: APPL
+    EnvironmentVariables: <CFBasicHash>
+    CFBundleDevelopmentRegion: ja_JP
+    UIPrerenderedIcon: <CFBoolean>
+    CFBundleVersion: 1.1
+    DTXcodeBuild: 4E2002
+    DTPlatformBuild: 9B176
+    SequenceNumber: <CFNumber>
+    ApplicationDSID: <CFNumber>
+    IsUpgradeable: <CFBoolean>
+    MinimumOSVersion: 4.2
+    UIDeviceFamily: (1)
+    NSMainNibFile: MainWindow
+    CFBundleIdentifier: me.seiji.aaa
+    CFBundleIconFiles: (
+      "Icon.png",
+      "Icon@2x.png",
+      "Icon-72.png"
+    )
+    DTXcode: 0432
+    CFBundleExecutable:
+    CFBundleSignature: ????
+    Path: /private/var/mobile/Applications/<UDID>/XXX.app
+    DTPlatformName: iphoneos
+    CFBundleResourceSpecification: ResourceRules.plist
+    DTCompiler:
+    UIRequiredDeviceCapabilities: (armv7)
+    CFBundleURLTypes:
+    (
+      {
+        CFBundleTypeRole = Editor;
+        CFBundleURLSchemes =         (
+          "aaa"
+        );
+      },
+      {
+        CFBundleTypeRole = Editor;
+        CFBundleURLSchemes =         (
+          reeder
+        );
+      },
+      {
+        CFBundleTypeRole = Editor;
+        CFBundleURLSchemes =         (
+          aaa
+        );
+      }
+    )
+
+  */
+#ifdef DEBUG
+  CFIndex count = CFDictionaryGetCount(app_dict);
+  if (count > 0) {
+    CFStringRef *keys[count];
+    CFStringRef *values[count];
+    CFDictionaryGetKeysAndValues(app_dict,
+                                 (const void **)keys, (const void **)values);
+
+    int i;
+    for (i=0; i<count; i++) {
+      CFShow(keys[i]);
+      CFShow(values[i]);
+    }
+  }
+#endif
+
+  CFStringRef app_type      = CFDictionaryGetValue(app_dict, CFSTR("ApplicationType"));
+  CFStringRef app_name      = CFDictionaryGetValue(app_dict, CFSTR("CFBundleDisplayName"));
+  CFStringRef app_container = CFDictionaryGetValue(app_dict, CFSTR("Container"));
+
+  char *app_name_cstr      = (app_name      != NULL) ? CFSTR2CSTR(app_name)      : "-";
+  char *app_container_cstr = (app_container != NULL) ? CFSTR2CSTR(app_container) : "-";
+
   if (CFStringCompare(app_type, CFSTR("User"), kCFCompareLocalized) == kCFCompareEqualTo) {
-    printf ("%-20s\t%s\n",app_name_cstr, bundle_id);
+    printf ("%-20s\t%s\t %s\n",app_name_cstr, app_container_cstr, bundle_id);
   /* } else if (CFStringCompare(app_type, CFSTR("System"), kCFCompareLocalized) == kCFCompareEqualTo) { */
   /*   printf ("%-20s\t%s\n",app_name_cstr, bundle_id); */
   }
@@ -895,11 +980,13 @@ void usage()
     - udid \n
     - info \n
     - apps \n
+    - logcat \n
     - ls <bundle_id> <relative_path>\n
     - cp <bundle_id> <relative_path>\n
     - up <bundle_id> <relative_path>\n
     - install <app_path or ipa_path> \n
     - uninstall <bundle_id> \n 
+    - tunnel <ios_port> <local_port>
   );
   printf("%s\n", str);
 }

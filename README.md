@@ -39,6 +39,10 @@ Connect your device with usb
     Podcasts                com.apple.podcasts
     -                       com.apple.Remote
 
+### Print Syslog
+
+    $ idb logcat
+
 ### Install app
 
     $ idb install /path/to/demo.ipa
@@ -61,8 +65,4 @@ Connect your device with usb
 ### Up directory
 
     $ idb up com.apple.iBooks Documents
-
-### Print syslog
-
-    $ idb logcat
 
