@@ -138,7 +138,16 @@ void make_dir(const char *path)
     mkdir(path, mode);
   }
 }
+CFURLRef get_absolute_file_url(const char *file_path)
+{
+  CFStringRef path = CFStringCreateWithCString(NULL, file_path, kCFStringEncodingUTF8);
+  CFURLRef relative_url = CFURLCreateWithFileSystemPath(NULL, path, kCFURLPOSIXPathStyle, false);
+  CFURLRef url = CFURLCopyAbsoluteURL(relative_url);
 
+  CFRelease(path);
+  CFRelease(relative_url);
+  return url;
+}
 /************************************************************************************************/
 void print_device_value(AMDeviceRef device, CFStringRef key)
 {
@@ -486,31 +495,23 @@ void install(AMDeviceRef device)
 {
   printf("[%3d%%] Start: %s\n", 0, command.app_path);  
 
-  CFStringRef path = CSTR2CFSTR(command.app_path);
+  CFURLRef path = get_absolute_file_url(command.app_path);
+  
   CFStringRef keys[] = { CFSTR("PackageType") }, values[] = { CFSTR("Developer") };
   CFDictionaryRef options = CFDictionaryCreate(NULL, (const void **)&keys, (const void **)&values, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
 
   /* Transfer */
-  unsigned int afcFd;
-  connect_service(device, AMSVC_AFC, &afcFd);
-  assert(AMDeviceTransferApplication(afcFd, path, NULL, on_transfer, 0) == 0);
-  close(afcFd);
-  
-  /* Install */
-  unsigned int installFd;
-  connect_service(device, AMSVC_INSTALLATION_PROXY, &installFd);
-  mach_error_t result = AMDeviceInstallApplication(installFd, path, options, on_install, 0);
-  if (result != 0)
-  {
-    printf("AMDeviceInstallApplication failed: %d\n", result);
-    unregister_notification(1);
-  }
-  close(installFd);
-  
+  connect_device(device);
+  assert(!AMDeviceSecureTransferPath(0, device, path, options,
+                                             NULL, 0));
+
+  assert(!AMDeviceSecureInstallApplication(0, device, path,
+                                                   options, NULL, 0));
+
   CFRelease(path);
   CFRelease(options);
 
-  printf("[100%%] Installed app: %s\n", command.app_path);  
+  printf("[OK] Installed app: %s\n", command.app_path);  
   unregister_notification(0);
 }
 
@@ -975,6 +976,7 @@ void create_tunnel(AMDeviceRef device)
 void usage()
 {
   char* str = HDOC(
+  Version: 0.2.0 \n
     Usage:idb <command>\n
     command is below \n
     - udid \n
