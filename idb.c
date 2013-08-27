@@ -55,6 +55,7 @@ enum CommandType
   COPY_DIR,
   APP_DIR,
   UP_DIR,
+  MK_DIR,
   PRINT_SYSLOG,
   TUNNEL
 };
@@ -104,6 +105,7 @@ void create_tunnel(AMDeviceRef device);
 void app_dir(AMDeviceRef device);
 void copy_dir(AMDeviceRef device);
 void up_dir(AMDeviceRef device);
+void mk_dir_ios(AMDeviceRef device);
 
 /************************************************************************************************/
 char* str_join(const char *a, const char *b)
@@ -220,7 +222,10 @@ static void on_device_connected(AMDeviceRef device)
     copy_dir(device);
   } else if (command.type == UP_DIR) {
     up_dir(device);
+  } else if (command.type == MK_DIR) {
+    mk_dir_ios(device);
   }
+    
 }
 
 void create_user()
@@ -769,6 +774,31 @@ void copy_dir(AMDeviceRef device)
 /************************************************
  idb up <bundle_id> <relative_dir>
 ************************************************/
+
+bool ios_directory_exists(afc_connection *afc_conn, const char *dir_name) {
+    struct afc_directory *dir;
+    int openRet = AFCDirectoryOpen(afc_conn, dir_name, &dir);
+    AFCDirectoryClose(afc_conn, dir);
+    if (openRet == 0) {
+        return true;
+    }
+    return false;
+}
+void on_mk_dir_ios(afc_connection *afc_conn, const char *dir_name) {
+    bool dirExists = ios_directory_exists(afc_conn, dir_name);
+    if (!dirExists) {
+        int ret = AFCDirectoryCreate(afc_conn, dir_name);
+        if (ret == 0) {
+            printf("Created Directory: %s\n", dir_name);
+            return;
+        }
+        else {
+            printf("Cannot Create Directory: %s\n", dir_name);
+            return;
+        }
+    }
+}
+
 void on_up_file(afc_connection *afc_conn, const char *file_name)
 {
   char *file_path = file_join(command.bundle_id, file_name);
@@ -813,13 +843,16 @@ void on_up_dir(afc_connection *afc_conn, const char *file_name)
 
   char *dir_path = file_join(command.bundle_id, file_name);
   if ((dir = opendir(dir_path)) == NULL){
-    printf("cannnot open dir %s\n", file_name);
-    exit(1);
+      printf("cannnot open dir %s\n", file_name);
+      exit(1);
+      
   }
+  //make sure the directory exists on the ios device
+  on_mk_dir_ios(afc_conn, file_name);
 
   while((dp = readdir(dir)) != NULL){
     char *dirent = dp->d_name;
-    if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0) continue;
+    if (strcmp(dirent, ".") == 0 || strcmp(dirent, "..") == 0 || strcmp(dirent, ".DS_Store") == 0) continue;
 
     char *path = file_join(dir_path, dirent);
     char *relative_path = file_join(file_name, dirent);
@@ -834,6 +867,8 @@ void on_up_dir(afc_connection *afc_conn, const char *file_name)
   closedir(dir);
   free(dir_path);
 }
+
+
 
 void up_dir(AMDeviceRef device)
 {
@@ -857,6 +892,32 @@ void up_dir(AMDeviceRef device)
 
   unregister_notification(0);
 }
+
+/************************************************
+ idb mkdir <bundle_id> <relative_dir>
+ ************************************************/
+void mk_dir_ios(AMDeviceRef device){
+    CFStringRef bundle_id = CSTR2CFSTR(command.bundle_id);
+    
+    service_conn_t socket;
+    connect_device(device);
+    create_user();
+    
+    AMDeviceStartHouseArrestService(device, bundle_id, NULL, &socket, 0);
+    
+    afc_connection *afc_conn;
+    int ret = AFCConnectionOpen(socket, 0, &afc_conn);
+    if (ret != ERR_SUCCESS) {
+        printf ( "AFCConnectionOpen = %i\n" , ret );
+        unregister_notification(1);
+        return;
+    }
+    
+    on_mk_dir_ios(afc_conn,  command.dir_path);
+    
+    unregister_notification(0);
+}
+
 
 /************************************************
  idb tunnel <iPhone port> <local port>
@@ -1024,6 +1085,10 @@ int main (int argc, char *argv[]) {
     command.dir_path  = argv[3];
   } else if ((argc == 4) && (strcmp(argv[1], "up") == 0)) {
     command.type = UP_DIR;
+    command.bundle_id = argv[2];
+    command.dir_path  = argv[3];
+  } else if ((argc == 4) && (strcmp(argv[1], "mkdir") == 0)) {
+    command.type = MK_DIR;
     command.bundle_id = argv[2];
     command.dir_path  = argv[3];
   } else if ((argc == 3) && (strcmp(argv[1], "install") == 0)) {
